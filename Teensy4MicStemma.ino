@@ -1,3 +1,6 @@
+#include <Rhythm.h>
+#include <Tap.h>
+
 #include <TaskScheduler.h>
 #include <TaskSchedulerDeclarations.h>
 #include <TaskSchedulerSleepMethods.h>
@@ -8,6 +11,8 @@
 #include <SPI.h>
 #include <SD.h>
 #include <SerialFlash.h>
+
+#include "AudioSampleFrogloop16.h"
 
 // ==== Debug and Test options ==================
 #define _DEBUG_
@@ -34,7 +39,7 @@
 #include <SD.h>
 #include <SerialFlash.h>
 
-// GUItool: begin automatically generated code
+/*/// GUItool: begin automatically generated code
 AudioInputI2S            i2s1;           //xy=77,129
 AudioMixer4              InputMixer;         //xy=250,141
 AudioEffectChorus        chorus1;        //xy=455,243
@@ -61,6 +66,46 @@ AudioConnection          patchCord12(FXMixer, 0, i2s2, 0);
 AudioConnection          patchCord13(FXMixer, 0, i2s2, 1);
 AudioControlSGTL5000     sgtl5000_1;     //xy=787,66
 // GUItool: end automatically generated code
+*/
+
+#include <Audio.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+
+// GUItool: begin automatically generated code
+/*AudioPlayMemory          playMem1;       //xy=213,310
+AudioEffectGranular      granular1;      //xy=492,438
+AudioOutputI2S           i2s2;           //xy=1003,520
+AudioConnection          patchCord1(playMem1, granular1);
+AudioConnection          patchCord2(granular1, 0, i2s2, 0);
+AudioConnection          patchCord3(granular1, 0, i2s2, 1);
+AudioControlSGTL5000     sgtl5000_1;     //xy=787,66
+// GUItool: end automatically generated code
+*/
+#include <Audio.h>
+#include <Wire.h>
+#include <SPI.h>
+#include <SD.h>
+#include <SerialFlash.h>
+
+// GUItool: begin automatically generated code
+AudioPlayMemory          playMem1;       //xy=193,288
+AudioEffectDelay         delay1;         //xy=376,475
+AudioMixer4              mixer1;         //xy=384,311
+AudioOutputI2S           i2s2;           //xy=1003,520
+AudioConnection          patchCord1(playMem1, 0, mixer1, 0);
+AudioConnection          patchCord2(delay1, 7, mixer1, 1);// feedback
+AudioConnection          patchCord3(mixer1, delay1);
+AudioConnection          patchCord4(mixer1, 0, i2s2, 0);
+AudioConnection          patchCord5(mixer1, 0, i2s2, 1); 
+AudioControlSGTL5000     sgtl5000_1;     //xy=787,66
+// GUItool: end automatically generated code
+
+
+#define GRANULAR_MEMORY_SIZE 12800  // enough for 290 ms at 44.1 kHz
+int16_t granularMemory[GRANULAR_MEMORY_SIZE];
 
 #define CHORUS_DELAY_LENGTH (16*AUDIO_BLOCK_SAMPLES)
 // Allocate the delay lines for left and right channels
@@ -90,59 +135,69 @@ int baseFreq;
 float deltaFreq;
 
 void setup() {
-  AudioMemory(12);
-  InputMixer.gain(0, 1.0);
-  InputMixer.gain(1, 1.0);
-  SourceMixer.gain(0, 0.25); //w
-  SourceMixer.gain(1, 0.50); //c
-  SourceMixer.gain(2, 0.25); //w
-  SourceMixer.gain(3, 0.50); //c
-  FXMixer.gain(0, 0.50); // 
-  FXMixer.gain(1, 0.50);
-  waveform1.begin(.5, 80, WAVEFORM_SAWTOOTH);
-  waveform2.begin(.5, 80.15, WAVEFORM_SAWTOOTH);
+  AudioMemory(120);
+//  InputMixer.gain(0, 1.0);
+//  InputMixer.gain(1, 1.0);
+//  SourceMixer.gain(0, 0.25); //w
+//  SourceMixer.gain(1, 0.50); //c
+//  SourceMixer.gain(2, 0.25); //w
+//  SourceMixer.gain(3, 0.50); //c
+//  FXMixer.gain(0, 0.50); // 
+//  FXMixer.gain(1, 0.50);
+//  waveform1.begin(.5, 80, WAVEFORM_SAWTOOTH);
+//  waveform2.begin(.5, 80.15, WAVEFORM_SAWTOOTH);
 
-  chorus1.begin(l_delayline,CHORUS_DELAY_LENGTH,2);
-  chorus1.begin(l_delayline,CHORUS_DELAY_LENGTH,2);
-  myFFT.windowFunction(AudioWindowHanning1024);
+//  chorus1.begin(l_delayline,CHORUS_DELAY_LENGTH,2);
+//  chorus1.begin(l_delayline,CHORUS_DELAY_LENGTH,2);
+//  myFFT.windowFunction(AudioWindowHanning1024);
 
+  mixer1.gain(0, .7);
+  mixer1.gain(1, .25);
+  delay1.delay(7, 110);
 // Enable the audio shield
   sgtl5000_1.enable();
   sgtl5000_1.volume(0.5);
   sgtl5000_1.inputSelect(AUDIO_INPUT_MIC);
 //  sgtl5000_1.micGain(63);
-
+//  granular1.begin(granularMemory, GRANULAR_MEMORY_SIZE);
 
   if (!seesaw1.begin(DEFAULT_I2C_ADDR) || !seesaw2.begin(DEFAULT_I2C_ADDR+1)) {
     Serial.println(F("seesaws not found!"));
     while(1) delay(10);
   }
-  
   Wire.begin();
-
 }
 
 void loop() {
   taskScheduler.execute();
-  
-  float n;
-  int i;
 
-  if (myFFT.available()) {
-    // each time new FFT data is available
-    // print it all to the Arduino Serial Monitor
-//    Serial.print("FFT: ");
-//    for (i=0; i<40; i++) {
-//      n = myFFT.read(i);
-//      if (n >= 0.01) {
-//        Serial.print(n);
-//        Serial.print(" ");
-//      } else {
-//        Serial.print("  -  "); // don't print "0.00"
-//      }
-//    }
-//    Serial.println();
+  if (playMem1.isPlaying() == false) {// loop
+//      uint16_t slide1_val = seesaw1.analogRead(ANALOGIN);
+//
+//    float msec = 10.0 + (slide1_val * 75.0);
+//    granular1.beginFreeze(msec);
+    playMem1.play(AudioSampleFrogloop16);
   }
+
+  
+/*  float n;
+  int i;
+  if (myFFT.available()) {
+     each time new FFT data is available
+     print it all to the Arduino Serial Monitor
+    Serial.print("FFT: ");
+    for (i=0; i<40; i++) {
+      n = myFFT.read(i);
+      if (n >= 0.01) {
+        Serial.print(n);
+        Serial.print(" ");
+      } else {
+        Serial.print("  -  "); // don't print "0.00"
+      }
+    }
+    Serial.println();
+  }
+  */
 }
 
 inline void LEDOn() {
@@ -164,14 +219,23 @@ void readControls() {
     LEDOn();
     LED_state = true;
   }
-
   uint16_t slide1_val = seesaw1.analogRead(ANALOGIN);
   uint16_t slide2_val = seesaw2.analogRead(ANALOGIN);
   baseFreq = 40 + map(slide1_val, 0, 1023, 0, 120);
   deltaFreq = (float) map(slide2_val, 0, 1023, 1, 1000) / 1000.0f;
-//  Serial.print(baseFreq);
-//  Serial.print(", ");
-//  Serial.println(deltaFreq);
-  waveform1.frequency(baseFreq);
-  waveform2.frequency((float)baseFreq + deltaFreq);
+//  waveform1.frequency(baseFreq);
+//  waveform2.frequency((float)baseFreq + deltaFreq);
+//  float ratio;
+//  ratio = powf(2.0, slide1_val * 2.0 - 1.0); // 0.5 to 2.0
+//  _PP("ratio ");
+//  _PL(ratio);
+ 
+  //ratio = powf(2.0, knobA2 * 6.0 - 3.0); // 0.125 to 8.0 -- uncomment for far too much range!
+//  granular1.setSpeed(.5);
+  float feedback = map(slide1_val, 0, 1023,0, 900) / 1000.0f;
+
+  mixer1.gain(1, feedback);
+  int dtime = map(slide2_val, 0, 1023, 25, 330);
+  delay1.delay(7, dtime);
+    _PP("fdbk "); _PP(feedback);_PP(", time "); _PL(dtime);
 }
